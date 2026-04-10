@@ -56,4 +56,4 @@ with open(output_file, "w", encoding="utf-8") as file:
                     file.write(scanned + "\n\n")  # Directly write the full text
 
         file.write("-" * 100 + "\n\n")
-        print(f"Processed unread email from {repname}")
+        print(f"Processed unread email from {sender}")
