@@ -1,6 +1,5 @@
-import sys
-import os
-import win32com.client as win32
+from PySide6 import QtCore, QtWidgets
+from PySide6.QtWidgets import QFileDialog
 from enum import Enum
 from emailscan import scan
 
@@ -9,19 +8,29 @@ class GUI(QtWidgets.QWidget):
         super().__init__()
         self.setWindowTitle("Email Scanner")
 
-        # Welcome text
-        self.text = QtWidgets.QLabel("Welcome! Please select a date, or leave blank for all emails.", alignment=QtCore.Qt.AlignCenter)
-        self.folder_name = QtWidgets.QTextEntry("Type subfolder (leave blank for main inbox).");
+        self.text = QtWidgets.QLabel("Welcome!", alignment=QtCore.Qt.AlignCenter)
+        
+        # Subfolder
+        self.folder_name = QLineEdit("Leave blank for main inbox", parent=self)
+        self.folder_name.textEdited.connect(self.update_subfolder)
+        
+        # Date
+        self.date = QtWidgets.QDateEdit(self)
 
         # Button to scan
         self.scan_button = QtWidgets.QPushButton("Scan")
-        self.scan_button.clicked.connect(emailscan.scan(str(self.folder_name)))
+        self.scan_button.clicked.connect(emailscan.scan(self.folder_name.text(),str(self.date.date.toPyDate()))
+        
+        # Layout
+        layout = QFormLayout()
+        self.setLayout(layout)
+        self.layout.addRow(self.text)
+        self.layout.addRow('Subfolder:', self.folder_name)
+        self.layout.addRow('Date:', self.date)
+        self.layout.addRow(self.scan_button)
 
-        # Layout for the main window
-        self.layout = QtWidgets.QVBoxLayout(self)
-        self.layout.addWidget(self.text)
-        self.layout.addWidget(self.folder_name)
-        self.layout.addWidget(self.scan_button)
+    def update_subfolder(self):
+        self.label.setText(self.folder_name.text())
 
 if __name__ == "__main__":
     app = QtWidgets.QApplication([])
@@ -29,6 +38,3 @@ if __name__ == "__main__":
     widget.resize(400, 250)
     widget.show()
     sys.exit(app.exec())
-
-        file.write("-" * 100 + "\n\n")
-        print(f"Processed unread email from {sender}")
