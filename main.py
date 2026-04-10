@@ -19,7 +19,7 @@ class GUI(QtWidgets.QWidget):
 
         # Button to scan
         self.scan_button = QtWidgets.QPushButton("Scan")
-        self.scan_button.clicked.connect(emailscan.scan(self.folder_name.text(),str(self.date.date.toPyDate()))
+        self.scan_button.clicked.connect(emailscan.scan(self.folder_name.text(),str(self.date.date.toPyDate())))
         
         # Layout
         layout = QFormLayout()
