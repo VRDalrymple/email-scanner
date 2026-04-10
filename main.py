@@ -2,7 +2,7 @@ import sys
 import os
 import win32com.client as win32
 from enum import Enum
-from ocr import scan
+from coldcallocr import scan
 
 class OutlookFolder(Enum):
     olFolderDeletedItems = 3 # The Deleted Items folder
@@ -18,11 +18,11 @@ outlook = win32.Dispatch("Outlook.Application").GetNamespace("MAPI")
 # Get the Inbox folder
 inbox = outlook.GetDefaultFolder(OutlookFolder.olFolderInbox.value)
 
-# Get subfolder "Reps"
-reps = inbox.Folders.Item("Reps")
+# For subfolders
+# inbox = inbox.Folders.Item("")
 
 # Apply the restriction
-messages = reps.Items.Restrict("[ReceivedTime]>='2025-05-01'")
+messages = inbox.Items.Restrict("[ReceivedTime]>='2026-03-13'")
 
 # Check if messages exist
 if len(messages) == 0:
@@ -32,19 +32,22 @@ if len(messages) == 0:
 # Initialize text file
 output_file = "OutreachResults.txt"
 with open(output_file, "w", encoding="utf-8") as file:
+    attachment_path = os.path.join(os.getcwd(), f"images")
+    if os.path.exists(attachment_path) == False:
+        os.mkdir(attachment_path)
+    path = attachment_path
     # Loop over messages
     for message in messages:
-        name = message.SenderName.upper()
+        sender = message.SenderName.upper()
         date_sent = message.Senton.date()
         email_body = message.Body
         attachments = message.Attachments
-        print(name)
         
-        file.write(f"Name: {name}\nDate Sent: {date_sent}\n\nEmail Content:\n{email_body}\n\n")
+        file.write(f"Sender: {sender}\nDate Sent: {date_sent}\n\nEmail Content:\n{email_body}\n\n")
         
         if len(attachments) > 0:
             for attachment in attachments:
-                attachment_path = os.path.join(os.getcwd(), attachment.FileName)
+                attachment_path = os.path.join(path, attachment.FileName)
                 attachment.SaveASFile(attachment_path)
                 scanned = scan(attachment_path)
                 
@@ -52,7 +55,5 @@ with open(output_file, "w", encoding="utf-8") as file:
                     file.write("Attachment Content:\n")
                     file.write(scanned + "\n\n")  # Directly write the full text
 
-
-        
         file.write("-" * 100 + "\n\n")
         print(f"Processed unread email from {repname}")
