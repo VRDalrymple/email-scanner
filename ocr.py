@@ -6,7 +6,7 @@ import cv2
 from PIL import Image
 import pytesseract
 
-def scan(image):
+def image_scan(image):
     pytesseract.pytesseract.tesseract_cmd = r'C:\\Program Files\\Tesseract-OCR\\tesseract.exe'
     print(image)
     text = ''
