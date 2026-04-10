@@ -1,7 +1,5 @@
 from PySide6 import QtCore, QtWidgets
-from PySide6.QtWidgets import QFileDialog
-from enum import Enum
-from emailscan import scan
+from scanner import scan
 
 class GUI(QtWidgets.QWidget):
     def __init__(self):
@@ -19,7 +17,7 @@ class GUI(QtWidgets.QWidget):
 
         # Button to scan
         self.scan_button = QtWidgets.QPushButton("Scan")
-        self.scan_button.clicked.connect(emailscan.scan(self.folder_name.text(),str(self.date.date.toPyDate())))
+        self.scan_button.clicked.connect(scan(self.folder_name.text(),str(self.date.date.toPyDate())))
         
         # Layout
         layout = QFormLayout()
