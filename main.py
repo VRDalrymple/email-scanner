@@ -1,143 +1,133 @@
 import sys
 from PySide6 import QtCore, QtWidgets
-from PySide6.QtWidgets import QApplication, QWidget, QLineEdit, QDateEdit, QLabel, QFormLayout
-from PySide6.QtCore import QDate, QDateTime, QThread, SIGNAL
-from PySide6.QtWidgets import QMessageBox, QProgressBar
-import datetime
+from PySide6.QtWidgets import (
+    QApplication, QWidget, QLineEdit, QDateEdit,
+    QLabel, QFormLayout, QMessageBox, QProgressBar
+)
+from PySide6.QtCore import QDate, QThread, QObject, Signal, Slot
 from scanner import get_messages, email_scan
 
-class Thread(QThread):
-    def __init__(self):
-        QThread.__init__(self)
+class Worker(QObject):
+    finished = Signal()
+    progress = Signal(int)
+    results = Signal(object)
+    error = Signal(str)
 
-    def __del__(self):
-        self.wait()
+    def __init__(self, folder, date1, date2):
+        super().__init__()
+        self.folder = folder
+        self.date1 = date1
+        self.date2 = date2
 
+    @Slot()
     def run(self):
-        messages = get_messages(widget.folder_name, widget.date1, widget.date2)
+        try:
+            messages = get_messages(self.folder, self.date1, self.date2)
 
-        if not messages:
-            return
+            if not messages:
+                self.results.emit([])
+                return
 
-class GUI(QtWidgets.QWidget):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+            email_scan(messages, self.progress.emit)
+            self.results.emit(messages)
+
+        except Exception as e:
+            self.error.emit(str(e))
+
+        finally:
+            self.finished.emit()
+
+class GUI(QWidget):
+    def __init__(self):
+        super().__init__()
         self.setWindowTitle("Email Scanner")
-        self.messages = 0
-
-        # Thread
-        self.thread = Thread()
+        self.messages = []
 
         # Label
-        self.text = QtWidgets.QLabel("Welcome!\n(Leave subfolder blank for main inbox)", alignment=QtCore.Qt.AlignCenter)
-        
-        # Subfolder
+        self.text = QLabel(
+            "Welcome!\n(Leave subfolder blank for main inbox)",
+            alignment=QtCore.Qt.AlignCenter
+        )
+
+        # Subfolder input
         self.folder_name = QLineEdit("", parent=self)
-        self.folder_name.textEdited.connect(self.update_subfolder)
-        
-        # Date
-        self.date1 = QtWidgets.QDateEdit(self)
+
+        # Dates
+        self.date1 = QDateEdit(self)
         self.date1.setDate(QDate.currentDate())
-        self.value1 = self.date1.date()
-        self.value1 = self.format_date(self.value1)
-        self.date1.editingFinished.connect(self.update_date1)
 
-        self.date2 = QtWidgets.QDateEdit(self)
+        self.date2 = QDateEdit(self)
         self.date2.setDate(QDate.currentDate())
-        self.value2 = self.date2.date()
-        self.value2 = self.format_date(self.value2)
-        self.date2.editingFinished.connect(self.update_date2)
-        
-        # Button to scan
+
+        # Button
         self.scan_button = QtWidgets.QPushButton("Scan")
-        self.scan_button.clicked.connect(self.thread.start)
+        self.scan_button.clicked.connect(self.start_scan)
 
-        # Progress bar
-        self.progress_bar = QtWidgets.QProgressBar()
-        self.connect(self.thread, SIGNAL("finished()"), self.done)
-        
+        # Progress bar (0–100)
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+
         # Layout
-        self.layout = QFormLayout()
-        self.setLayout(self.layout)
+        layout = QFormLayout()
+        self.setLayout(layout)
 
-        self.layout.addRow(self.text)
-        self.layout.addRow('Subfolder:', self.folder_name)
-        self.layout.addRow('Start Date:', self.date1)
-        self.layout.addRow('End Date:', self.date2)
-        self.layout.addRow(self.scan_button)
-        self.layout.addRow(self.progress_bar)
+        layout.addRow(self.text)
+        layout.addRow('Subfolder:', self.folder_name)
+        layout.addRow('Start Date:', self.date1)
+        layout.addRow('End Date:', self.date2)
+        layout.addRow(self.scan_button)
+        layout.addRow(self.progress_bar)
 
-    def update_subfolder(self):
-        self.folder_name.setText(self.folder_name.text())
+    def start_scan(self):
+        folder = self.folder_name.text().strip()
 
-    def format_date(self, value):
-        # format - 'yyyy-mm-dd'
-        new_value = value.toString().split()
-        
-        match new_value[1]:
-            case "Jan":
-                new_value[1] = "01"
-            case "Feb":
-                new_value[1] = "02"
-            case "Mar":
-                new_value[1] = "03"
-            case "Apr":
-                new_value[1] = "04"
-            case "May":
-                new_value[1] = "05"
-            case "Jun":
-                new_value[1] = "06"
-            case "Jul":
-                new_value[1] = "07"
-            case "Aug":
-                new_value[1] = "08"
-            case "Sep":
-                new_value[1] = "09"
-            case "Oct":
-                new_value[1] = "10"
-            case "Nov":
-                new_value[1] = "11"
-            case "Dec":
-                new_value[1] = "12"
+        # Clean date formatting (no manual parsing nonsense)
+        date1 = self.date1.date().toString("yyyy-MM-dd")
+        date2 = self.date2.date().toString("yyyy-MM-dd")
 
-        if int(new_value[2]) < 10:
-            new_value[2] = f"0{new_value[2]}"
+        # Create thread + worker
+        self.thread = QThread()
+        self.worker = Worker(folder, date1, date2)
 
-        value = [str(new_value[3]),str(new_value[1]),str(new_value[2])]
-        value = "-".join(value)
-        return value
+        self.worker.moveToThread(self.thread)
 
-    def update_date1(self):
-            self.value1 = self.date1.date()
-            self.value1 = self.format_date(self.value1)
-            print(self.value1)
-    
-    def update_date2(self):
-            self.value2 = self.date2.date()
-            self.value2 = self.format_date(self.value2)
-            print(self.value2)
+        # Start
+        self.thread.started.connect(self.worker.run)
 
-    def make_progress(self):
-        self.progress_bar.setMaximum(len(self.messages))
+        # Cleanup
+        self.worker.finished.connect(self.thread.quit)
+        self.worker.finished.connect(self.worker.deleteLater)
+        self.thread.finished.connect(self.thread.deleteLater)
+
+        # Signals → GUI
+        self.worker.progress.connect(self.update_progress)
+        self.worker.results.connect(self.handle_results)
+        self.worker.error.connect(self.show_error)
+        self.worker.finished.connect(self.done)
+
+        # Reset progress
+        self.progress_bar.setValue(0)
+
+        self.thread.start()
+
+    def update_progress(self, value):
+        self.progress_bar.setValue(value)
+
+    def handle_results(self, messages):
+        if not messages:
+            QMessageBox.information(self, "No Messages", "There are no messages in this folder.")
+            return
+
+        self.messages = messages
+
+    def show_error(self, message):
+        QMessageBox.critical(self, "Error", message)
 
     def done(self):
         QMessageBox.information(self, "Done!", "Done scanning!")
 
-    def handle_results(self, messages):
-        self.messages = messages
-        self.progress_bar.setMaximum(len(messages))
-        self.progress_bar.setValue(0)
-
-        email_scan(self.messages, self.progress_bar)
-    
-    def no_messages(self):
-        QMessageBox.information(widget, "No Messages", "There are no messages in this folder.")
-    
-def run_scan():
-    email_scan(widget.messages,widget.progress_bar)
-
 if __name__ == "__main__":
-    app = QtWidgets.QApplication([])
+    app = QApplication([])
     widget = GUI()
     widget.show()
     sys.exit(app.exec())
