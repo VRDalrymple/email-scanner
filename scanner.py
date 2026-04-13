@@ -70,12 +70,13 @@ def email_scan(messages, progress_callback=None):
         path = attachment_path
         # Loop over messages
         for message in messages:
+            subject = message.Subject
             sender = message.SenderName.upper()
             date_sent = message.Senton.date()
             email_body = message.Body
             attachments = message.Attachments
             
-            file.write(f"Sender: {sender}\nDate Sent: {date_sent}\n\nEmail Content:\n{email_body}\n\n")
+            file.write(f"Subject: {subject}\nSender: {sender}\nDate Sent: {date_sent}\n\nEmail Content:\n{email_body}\n\n")
             
             if len(attachments) > 0:
                 for attachment in attachments:
