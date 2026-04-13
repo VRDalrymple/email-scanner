@@ -48,14 +48,19 @@ def get_messages(sub,date1,date2):
     
     print(f"{sub}")
     if date1 == date2:
-        messages = inbox.Items.Restrict(f"[ReceivedTime]>='{date1}'")
+        restriction = f"[ReceivedTime]>='{date1}'"
     else:
-        # Apply the restriction
-        messages = inbox.Items.Restrict(f"[ReceivedTime]>='{date1}' AND [ReceivedTime]<='{date2}'")
-    
+        restriction = f"[ReceivedTime]>='{date1}' AND [ReceivedTime]<='{date2}'"
+
+    messages = inbox.Items.Restrict(restriction)
+    messages = [msg for msg in messages]
+
     return messages
 
-def email_scan(messages,progress_bar):
+def email_scan(messages, progress_callback=None):
+    total = len(messages)
+    processed = 0
+
     # Initialize text file
     output_file = "OutreachResults.txt"
     with open(output_file, "w", encoding="utf-8") as file:
@@ -74,51 +79,57 @@ def email_scan(messages,progress_bar):
             
             if len(attachments) > 0:
                 for attachment in attachments:
-                    filename = attachment.FileName.lower()
-                    if filename.endswith(".pdf"):
+                    try:
+                        filename = attachment.FileName.lower()
+                        if filename.endswith(".pdf"):
+                                attachment_path = os.path.join(path, attachment.FileName)
+                                attachment.SaveASFile(attachment_path)
+
+                                pdf = fitz.open(attachment_path)
+                                for page_index in range(len(pdf)):
+                                    page = pdf.load_page(page_index)
+                                    image_list = page.get_images(full=True)
+
+                                    if image_list:
+                                        print(f"[+] Found {len(image_list)} images on page {page_index}")
+                                    else:
+                                        print(f"[!] No images found on page {page_index}")
+
+                                    for image_index, img in enumerate(image_list, start=1):
+                                        xref = img[0]
+                                        base_image = pdf.extract_image(xref)
+                                        image_bytes = base_image["image"]
+                                        image_ext = base_image["ext"]
+
+                                        image_name = os.path.join(
+                                            path,
+                                            f"{subject}_{page_index+1}_{image_index}.{image_ext}"
+                                        )
+                                        image_name = uniquename(image_name)
+                                        with open(image_name, "wb") as image_file:
+                                            image_file.write(image_bytes)
+
+                                        print(f"[+] Extracted image saved as {image_name}")
+                                        attachment_scanned = image_scan(image_name)
+
+                                        saved_any = True
+
+                                pdf.close()
+                        else:
                             attachment_path = os.path.join(path, attachment.FileName)
+                            attachment_path = uniquename(attachment.FileName)
                             attachment.SaveASFile(attachment_path)
-
-                            pdf = fitz.open(attachment_path)
-                            for page_index in range(len(pdf)):
-                                page = pdf.load_page(page_index)
-                                image_list = page.get_images(full=True)
-
-                                if image_list:
-                                    print(f"[+] Found {len(image_list)} images on page {page_index}")
-                                else:
-                                    print(f"[!] No images found on page {page_index}")
-
-                                for image_index, img in enumerate(image_list, start=1):
-                                    xref = img[0]
-                                    base_image = pdf.extract_image(xref)
-                                    image_bytes = base_image["image"]
-                                    image_ext = base_image["ext"]
-
-                                    image_name = os.path.join(
-                                        path,
-                                        f"{subject}_{page_index+1}_{image_index}.{image_ext}"
-                                    )
-                                    image_name = uniquename(image_name)
-                                    with open(image_name, "wb") as image_file:
-                                        image_file.write(image_bytes)
-
-                                    print(f"[+] Extracted image saved as {image_name}")
-                                    attachment_scanned = image_scan(image_name)
-
-                                    saved_any = True
-
-                            pdf.close()
-                    else:
-                        attachment_path = os.path.join(path, attachment.FileName)
-                        attachment_path = uniquename(attachment.FileName)
-                        attachment.SaveASFile(attachment_path)
-                        attachment_scanned = image_scan(attachment_path)
-                        
-                    if attachment_scanned:
-                        file.write("Attachment Content:\n")
-                        file.write(attachment_scanned + "\n\n")  # Directly write the full text
-    
+                            attachment_scanned = image_scan(attachment_path)
+                            
+                        if attachment_scanned:
+                            file.write("Attachment Content:\n")
+                            file.write(attachment_scanned + "\n\n")  # Directly write the full text
+                    except:
+                        print("couldn't process attachment")
+        
             file.write("-" * 100 + "\n\n")
             print(f"Processed unread email from {sender}")
-            progress_bar.setValue(progress_bar.value()+1)
+            processed += 1
+            if progress_callback:
+                percent = int((processed / total) * 100)
+                progress_callback(percent)
