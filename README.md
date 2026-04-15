@@ -50,10 +50,8 @@ A PySide6 desktop application that scans Outlook emails within a date range, ext
 ### 1. Install dependencies
 
 ```bash
-pip install PySide6 pywin32 pymupdf
+pip install PySide6 pywin32 pymupdf pytesseract
 ```
-
-(Plus whatever your OCR module requires)
 
 ---
 
