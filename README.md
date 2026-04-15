@@ -25,10 +25,10 @@ A PySide6 desktop application that scans Outlook emails within a date range, ext
 ## Tech Stack
 
 * Python 3
-* PySide6 (GUI)
+* PySide6 (PyQt GUI)
 * pywin32 (Outlook COM integration)
 * PyMuPDF (`fitz`) for PDF processing
-* Custom OCR module (`ocr.py`)
+* PyTesseract
 
 ---
 
