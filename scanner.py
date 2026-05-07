@@ -1,136 +1,348 @@
-import sys
 import os
 import re
-import fitz
-import tempfile
-import win32com.client as win32
 from enum import Enum
+
+import fitz
+import win32com.client as win32
+
 from ocr import image_scan
 
+
 class OutlookFolder(Enum):
-    olFolderDeletedItems = 3 # The Deleted Items folder
-    olFolderOutbox = 4 # The Outbox folder
-    olFolderSentMail = 5 # The Sent Mail folder
-    olFolderInbox = 6 # The Inbox folder
-    olFolderDrafts = 16 # The Drafts folder
-    olFolderJunk = 23 # The Junk E-Mail folder
+    olFolderDeletedItems = 3
+    olFolderOutbox = 4
+    olFolderSentMail = 5
+    olFolderInbox = 6
+    olFolderDrafts = 16
+    olFolderJunk = 23
+
 
 def uniquename(base_path):
-    """Return a unique filename if base_path already exists."""
+    """
+    Return a unique filename if the path already exists.
+    """
+
     counter = 1
     path, ext = os.path.splitext(base_path)
+
     candidate = base_path
+
     while os.path.exists(candidate):
         candidate = f"{path}_{counter}{ext}"
         counter += 1
+
     return candidate
 
-def sanitize_filename(self, name, max_length=150):
-    """Replace illegal filename characters and truncate safely."""
+
+def sanitize_filename(name, max_length=150):
+    """
+    Replace illegal Windows filename characters.
+    """
+
     safe = re.sub(r'[\\/*?:"<>|]', "_", name)
+
     return safe[:max_length]
 
-def get_messages(sub,date1,date2):
-    # Get a reference to Outlook
-    outlook = win32.Dispatch("Outlook.Application").GetNamespace("MAPI")
-    
-    # Get the Inbox folder
-    inbox = outlook.GetDefaultFolder(OutlookFolder.olFolderInbox.value)
-    
-    # For subfolders
-    if sub != "":
+
+def get_messages(subfolder, date1, date2):
+
+    outlook = win32.Dispatch(
+        "Outlook.Application"
+    ).GetNamespace("MAPI")
+
+    inbox = outlook.GetDefaultFolder(
+        OutlookFolder.olFolderInbox.value
+    )
+
+    # optional subfolder
+    if subfolder:
         try:
-            inbox = inbox.Folders.Item(f"{sub}")
-        except BaseException as err:
-            print("Invalid subfolder name. Defaulting to main inbox.")
-            print({err})
-            inbox = outlook.GetDefaultFolder(OutlookFolder.olFolderInbox.value)
-    
-    print(f"{sub}")
+            inbox = inbox.Folders.Item(subfolder)
+
+        except Exception as err:
+            print(
+                f"Invalid subfolder '{subfolder}'. "
+                f"Using main inbox instead."
+            )
+            print(err)
+
+    # build restriction
     if date1 == date2:
-        restriction = f"[ReceivedTime]>='{date1}'"
+        restriction = f"[ReceivedTime] >= '{date1}'"
+
     else:
-        restriction = f"[ReceivedTime]>='{date1}' AND [ReceivedTime]<='{date2}'"
+        restriction = (
+            f"[ReceivedTime] >= '{date1}' "
+            f"AND [ReceivedTime] <= '{date2}'"
+        )
 
-    messages = inbox.Items.Restrict(restriction)
-    messages = [msg for msg in messages]
+    try:
+        messages = inbox.Items.Restrict(restriction)
 
-    return messages
+        # filter valid mail items only
+        messages = [
+            msg for msg in messages
+            if hasattr(msg, "Subject")
+        ]
+
+        return messages
+
+    except Exception as err:
+        print(f"Failed retrieving messages: {err}")
+
+        return []
+
+
+def save_attachment(attachment, save_dir):
+
+    safe_name = sanitize_filename(
+        attachment.FileName
+    )
+
+    attachment_path = uniquename(
+        os.path.join(save_dir, safe_name)
+    )
+
+    attachment.SaveASFile(attachment_path)
+
+    print(f"[+] Saved attachment: {attachment_path}")
+
+    return attachment_path
+
+
+def extract_pdf_images(pdf_path, output_dir, subject):
+
+    extracted_text = ""
+
+    safe_subject = sanitize_filename(subject)
+
+    try:
+        pdf = fitz.open(pdf_path)
+
+        for page_index in range(len(pdf)):
+
+            page = pdf.load_page(page_index)
+
+            image_list = page.get_images(full=True)
+
+            if image_list:
+                print(
+                    f"[+] Found {len(image_list)} "
+                    f"images on page {page_index + 1}"
+                )
+            else:
+                print(
+                    f"[!] No images found on "
+                    f"page {page_index + 1}"
+                )
+
+            for image_index, img in enumerate(
+                image_list,
+                start=1
+            ):
+
+                try:
+                    xref = img[0]
+
+                    base_image = pdf.extract_image(xref)
+
+                    image_bytes = base_image["image"]
+
+                    # force png extension for OCR compatibility
+                    image_name = uniquename(
+                        os.path.join(
+                            output_dir,
+                            (
+                                f"{safe_subject}_"
+                                f"{page_index + 1}_"
+                                f"{image_index}.png"
+                            )
+                        )
+                    )
+
+                    with open(image_name, "wb") as image_file:
+                        image_file.write(image_bytes)
+
+                    print(
+                        f"[+] Extracted image saved: "
+                        f"{image_name}"
+                    )
+
+                    scanned_text = image_scan(image_name)
+
+                    if scanned_text:
+                        extracted_text += (
+                            scanned_text + "\n\n"
+                        )
+
+                except Exception as err:
+                    print(
+                        f"Failed extracting PDF image: {err}"
+                    )
+
+        pdf.close()
+
+    except Exception as err:
+        print(f"Failed processing PDF: {err}")
+
+    return extracted_text
+
 
 def email_scan(messages, progress_callback=None):
+
     total = len(messages)
+
     processed = 0
 
-    # Initialize text file
     output_file = "OutreachResults.txt"
-    with open(output_file, "w", encoding="utf-8") as file:
-        attachment_path = os.path.join(os.getcwd(), f"images")
-        if os.path.exists(attachment_path) == False:
-            os.mkdir(attachment_path)
-        path = attachment_path
-        # Loop over messages
+
+    image_dir = os.path.join(
+        os.getcwd(),
+        "images"
+    )
+
+    os.makedirs(image_dir, exist_ok=True)
+
+    with open(
+        output_file,
+        "w",
+        encoding="utf-8"
+    ) as file:
+
         for message in messages:
-            subject = message.Subject
-            sender = message.SenderName.upper()
-            date_sent = message.Senton.date()
-            email_body = message.Body
-            attachments = message.Attachments
-            
-            file.write(f"Subject: {subject}\nSender: {sender}\nDate Sent: {date_sent}\n\nEmail Content:\n{email_body}\n\n")
-            
-            if len(attachments) > 0:
-                for attachment in attachments:
-                    try:
-                        filename = attachment.FileName.lower()
-                        if filename.endswith(".pdf"):
-                                attachment_path = os.path.join(path, attachment.FileName)
-                                attachment.SaveASFile(attachment_path)
 
-                                pdf = fitz.open(attachment_path)
-                                for page_index in range(len(pdf)):
-                                    page = pdf.load_page(page_index)
-                                    image_list = page.get_images(full=True)
+            try:
+                subject = getattr(
+                    message,
+                    "Subject",
+                    "No Subject"
+                )
 
-                                    if image_list:
-                                        print(f"[+] Found {len(image_list)} images on page {page_index}")
-                                    else:
-                                        print(f"[!] No images found on page {page_index}")
+                sender = getattr(
+                    message,
+                    "SenderName",
+                    "Unknown Sender"
+                ).upper()
 
-                                    for image_index, img in enumerate(image_list, start=1):
-                                        xref = img[0]
-                                        base_image = pdf.extract_image(xref)
-                                        image_bytes = base_image["image"]
-                                        image_ext = base_image["ext"]
+                email_body = getattr(
+                    message,
+                    "Body",
+                    ""
+                )
 
-                                        image_name = os.path.join(
-                                            path,
-                                            f"{subject}_{page_index+1}_{image_index}.{image_ext}"
-                                        )
-                                        image_name = uniquename(image_name)
-                                        with open(image_name, "wb") as image_file:
-                                            image_file.write(image_bytes)
+                date_sent = getattr(
+                    message,
+                    "SentOn",
+                    None
+                )
 
-                                        print(f"[+] Extracted image saved as {image_name}")
-                                        attachment_scanned = image_scan(image_name)
+                if date_sent:
+                    date_sent = date_sent.date()
 
-                                        saved_any = True
+                attachments = getattr(
+                    message,
+                    "Attachments",
+                    []
+                )
 
-                                pdf.close()
-                        else:
-                            attachment_path = os.path.join(path, attachment.FileName)
-                            attachment_path = uniquename(attachment.FileName)
-                            attachment.SaveASFile(attachment_path)
-                            attachment_scanned = image_scan(attachment_path)
-                            
-                        if attachment_scanned:
-                            file.write("Attachment Content:\n")
-                            file.write(attachment_scanned + "\n\n")  # Directly write the full text
-                    except:
-                        print("couldn't process attachment")
-        
-            file.write("-" * 100 + "\n\n")
-            print(f"Processed unread email from {sender}")
-            processed += 1
-            if progress_callback:
-                percent = int((processed / total) * 100)
-                progress_callback(percent)
+                file.write(
+                    f"Subject: {subject}\n"
+                    f"Sender: {sender}\n"
+                    f"Date Sent: {date_sent}\n\n"
+                    f"Email Content:\n"
+                    f"{email_body}\n\n"
+                )
+
+                # process attachments
+                if len(attachments) > 0:
+
+                    for attachment in attachments:
+
+                        try:
+                            filename = (
+                                attachment.FileName.lower()
+                            )
+
+                            attachment_text = ""
+
+                            # PDF handling
+                            if filename.endswith(".pdf"):
+
+                                pdf_path = save_attachment(
+                                    attachment,
+                                    image_dir
+                                )
+
+                                attachment_text = (
+                                    extract_pdf_images(
+                                        pdf_path,
+                                        image_dir,
+                                        subject
+                                    )
+                                )
+
+                            # image handling
+                            elif filename.endswith(
+                                (
+                                    ".jpg",
+                                    ".jpeg",
+                                    ".png",
+                                    ".bmp",
+                                    ".tiff"
+                                )
+                            ):
+
+                                image_path = save_attachment(
+                                    attachment,
+                                    image_dir
+                                )
+
+                                attachment_text = (
+                                    image_scan(image_path)
+                                )
+
+                            else:
+                                print(
+                                    f"[!] Skipping unsupported "
+                                    f"file type: {filename}"
+                                )
+
+                            if attachment_text:
+
+                                file.write(
+                                    "Attachment Content:\n"
+                                )
+
+                                file.write(
+                                    attachment_text + "\n"
+                                )
+
+                        except Exception as err:
+                            print(
+                                f"Couldn't process "
+                                f"attachment: {err}"
+                            )
+
+                file.write(
+                    "-" * 100 + "\n\n"
+                )
+
+                print(
+                    f"Processed unread email "
+                    f"from {sender}"
+                )
+
+                processed += 1
+
+                if progress_callback:
+
+                    percent = int(
+                        (processed / total) * 100
+                    )
+
+                    progress_callback(percent)
+
+            except Exception as err:
+                print(
+                    f"Failed processing message: {err}"
+                )
