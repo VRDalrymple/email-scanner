@@ -9,16 +9,15 @@ A PySide6 desktop application that scans Outlook emails within a date range, ext
 * Scan Outlook Inbox or specific subfolders
 * Filter emails by date range
 * Extract:
-
   * Sender
   * Date sent
   * Email body
 * Process attachments:
-
   * PDF image extraction
   * OCR on images
 * Progress bar with live updates
 * Output saved to `OutreachResults.txt`
+* Images are saved in a separate folder
 
 ---
 
@@ -57,7 +56,7 @@ pip install PySide6 pywin32 pymupdf pytesseract
 
 ### 2. Windows Requirement
 
-This app uses Outlook COM, so:
+This program uses Outlook COM, so:
 
 * Windows only
 * Microsoft Outlook must be installed and configured
