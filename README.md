@@ -92,7 +92,7 @@ python main.py
 
 ---
 
-## 📄 Output
+## Output
 
 Results are written to:
 
